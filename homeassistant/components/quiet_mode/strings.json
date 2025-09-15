@@ -1,0 +1,18 @@
+{
+  "services": {
+    "enable": {
+      "name": "Enable",
+      "description": "Enables quiet mode for selected media players, lowering their volume.",
+      "fields": {
+        "volume_level": {
+          "name": "Volume Level",
+          "description": "The target volume level for quiet mode (0.0 to 1.0)."
+        }
+      }
+    },
+    "disable": {
+      "name": "Disable",
+      "description": "Disables quiet mode, restoring previous volume levels."
+    }
+  }
+}

@@ -1,0 +1,7 @@
+enable:
+  name: Enable Quiet Mode
+  description: Enables Quiet Mode based on configured helpers.
+
+disable:
+  name: Disable Quiet Mode
+  description: Disables Quiet Mode and restores volume.
