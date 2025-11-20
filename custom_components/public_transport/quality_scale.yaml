@@ -1,0 +1,31 @@
+rules:
+  config-flow: done
+  config-flow-test-coverage: done
+  entity-unique-id: done
+  appropriate-polling: done
+  common-modules: done
+  dependency-transparency: done
+  entity-event-setup: done
+  has-entity-name: done
+  runtime-data: done
+  test-before-configure: done
+  test-before-setup: done
+  unique-config-entry: done
+  action-setup:
+    status: exempt
+    comment: Integration does not register custom actions.
+  brands:
+    status: exempt
+    comment: Demo component; brand assets are not provided in this repo.
+  docs-actions:
+    status: exempt
+    comment: Documentation for this demo integration is tracked externally.
+  docs-high-level-description:
+    status: exempt
+    comment: Documentation for this demo integration is tracked externally.
+  docs-installation-instructions:
+    status: exempt
+    comment: Documentation for this demo integration is tracked externally.
+  docs-removal-instructions:
+    status: exempt
+    comment: Documentation for this demo integration is tracked externally.
