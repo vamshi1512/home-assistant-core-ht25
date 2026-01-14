@@ -1136,6 +1136,7 @@ INTEGRATIONS_WITHOUT_QUALITY_SCALE_FILE = [
 ]
 
 INTEGRATIONS_WITHOUT_SCALE = [
+    "quiet_mode",
     "abode",
     "accuweather",
     "acer_projector",

@@ -1,0 +1,10 @@
+{
+  "services": {
+    "enable": {
+      "service": "mdi:volume-low"
+    },
+    "disable": {
+      "service": "mdi:volume-high"
+    }
+  }
+}

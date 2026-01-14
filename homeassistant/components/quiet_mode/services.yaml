@@ -1,0 +1,17 @@
+enable:
+  target:
+    entity:
+      domain: media_player
+  fields:
+    quiet_volume:
+      selector:
+        number:
+          min: 0.0
+          max: 1.0
+          step: 0.01
+      default: 0.12
+
+disable:
+  target:
+    entity:
+      domain: media_player

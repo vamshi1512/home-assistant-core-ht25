@@ -1,0 +1,18 @@
+{
+  "services": {
+    "enable": {
+      "name": "Enable Quiet Mode",
+      "description": "Temporarily lower the volume of media players and store their current volume for later restoration.",
+      "fields": {
+        "quiet_volume": {
+          "name": "Quiet Volume",
+          "description": "The volume level to set (0.0 to 1.0). Default is 0.12."
+        }
+      }
+    },
+    "disable": {
+      "name": "Disable Quiet Mode",
+      "description": "Restore the previous volume of media players."
+    }
+  }
+}
