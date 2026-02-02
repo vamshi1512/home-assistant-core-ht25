@@ -1,141 +1,154 @@
 """The Quiet Mode integration."""
 
+from __future__ import annotations
+
 import logging
-from typing import Final
 
 import voluptuous as vol
 
 from homeassistant.components.media_player import (
     ATTR_MEDIA_VOLUME_LEVEL,
     DOMAIN as MEDIA_PLAYER_DOMAIN,
-    SERVICE_VOLUME_SET,
 )
-from homeassistant.const import ATTR_ENTITY_ID
+from homeassistant.const import ATTR_ENTITY_ID, SERVICE_VOLUME_SET
 from homeassistant.core import HomeAssistant, ServiceCall
-from homeassistant.helpers import config_validation as cv
+from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.typing import ConfigType
 
 from .const import (
-    ATTR_QUIET_VOLUME,
-    DATA_PREVIOUS_VOLUMES,
-    DEFAULT_QUIET_VOLUME,
+    DEFAULT_VOLUME,
     DOMAIN,
-    SERVICE_DISABLE,
-    SERVICE_ENABLE,
+    ENTITY_SPOTIFY,
+    HELPER_INCLUDE_SPOTIFY,
+    HELPER_TARGET_SELECTOR,
+    HELPER_VOLUME,
+    OPTION_ALL,
+    ROOM_ENTITY_MAPPING,
 )
 
 _LOGGER = logging.getLogger(__name__)
 
-CONFIG_SCHEMA = cv.empty_config_schema(DOMAIN)
+SERVICE_ENABLE = "enable"
+SERVICE_DISABLE = "disable"
 
-SERVICE_ENABLE_SCHEMA: Final = vol.Schema(
-    {
-        vol.Required(ATTR_ENTITY_ID): cv.entity_ids,
-        vol.Optional(ATTR_QUIET_VOLUME, default=DEFAULT_QUIET_VOLUME): vol.All(
-            vol.Coerce(float), vol.Range(min=0.0, max=1.0)
-        ),
-    }
-)
+ATTR_VOLUME_LEVEL = "volume_level"
 
-SERVICE_DISABLE_SCHEMA: Final = vol.Schema(
-    {
-        vol.Required(ATTR_ENTITY_ID): cv.entity_ids,
-    }
-)
+# Schema is now empty as we read from helpers
+ENABLE_SCHEMA = vol.Schema({})
+DISABLE_SCHEMA = vol.Schema({})
+
+CONFIG_SCHEMA = vol.Schema({DOMAIN: vol.Schema({})}, extra=vol.ALLOW_EXTRA)
 
 
 async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
     """Set up the Quiet Mode integration."""
-    # Initialize storage for previous volumes
-    hass.data[DOMAIN] = {DATA_PREVIOUS_VOLUMES: {}}
+    hass.data.setdefault(DOMAIN, {})
 
-    async def async_handle_enable(call: ServiceCall) -> None:
-        """Handle the enable service call."""
-        entity_ids = call.data[ATTR_ENTITY_ID]
-        quiet_volume = call.data[ATTR_QUIET_VOLUME]
+    def get_target_entities(hass: HomeAssistant) -> list[str]:
+        """Get list of entities selected via input_select and input_boolean."""
+        entities: list[str] = []
+
+        # Check Room Selection (Dropdown)
+        target_selection = hass.states.get(HELPER_TARGET_SELECTOR)
+        selection = target_selection.state if target_selection else None
+
+        if selection == OPTION_ALL:
+            entities.extend(ROOM_ENTITY_MAPPING.values())
+        elif selection in ROOM_ENTITY_MAPPING:
+            entities.append(ROOM_ENTITY_MAPPING[selection])
+
+        # Check Spotify Selection (Toggle)
+        spotify_state = hass.states.get(HELPER_INCLUDE_SPOTIFY)
+        if spotify_state and spotify_state.state == "on":
+            entities.append(ENTITY_SPOTIFY)
+
+        return list(set(entities))  # Deduplicate just in case
+
+    def get_target_volume(hass: HomeAssistant) -> float:
+        """Get target volume from input_number helper."""
+        state = hass.states.get(HELPER_VOLUME)
+        if state:
+            try:
+                # input_number state is string, cast to float
+                return float(state.state)
+            except ValueError:
+                _LOGGER.warning("Invalid value for %s: %s", HELPER_VOLUME, state.state)
+        return DEFAULT_VOLUME
+
+    async def async_enable_quiet_mode(call: ServiceCall) -> None:
+        """Enable quiet mode for selected media players."""
+        # ignore passed entity_ids, read from helpers
+        entity_ids = get_target_entities(hass)
+        target_volume = get_target_volume(hass)
+
+        if not entity_ids:
+            _LOGGER.warning("No media players selected for Quiet Mode")
+            return
 
         _LOGGER.debug(
-            "Enabling quiet mode for %s with volume %s", entity_ids, quiet_volume
+            "Enabling Quiet Mode. Target: %s. Entities: %s", target_volume, entity_ids
         )
 
         for entity_id in entity_ids:
-            # Get current state of the media player
             state = hass.states.get(entity_id)
-
             if state is None:
-                _LOGGER.warning("Entity %s not found", entity_id)
+                _LOGGER.debug("Entity %s not found", entity_id)
                 continue
 
-            # Check if entity supports volume_level
             current_volume = state.attributes.get(ATTR_MEDIA_VOLUME_LEVEL)
 
             if current_volume is None:
-                _LOGGER.warning(
-                    "Entity %s does not have volume_level attribute", entity_id
+                _LOGGER.debug(
+                    "Entity %s does not support volume level or is off/idle", entity_id
                 )
                 continue
 
-            # Store the current volume
-            hass.data[DOMAIN][DATA_PREVIOUS_VOLUMES][entity_id] = current_volume
-            _LOGGER.debug("Stored volume %s for %s", current_volume, entity_id)
+            # Store the current volume if not already stored
+            if entity_id not in hass.data[DOMAIN]:
+                hass.data[DOMAIN][entity_id] = current_volume
+                _LOGGER.debug("Stored volume %s for %s", current_volume, entity_id)
 
-            # Set the quiet volume
-            await hass.services.async_call(
-                MEDIA_PLAYER_DOMAIN,
-                SERVICE_VOLUME_SET,
-                {
-                    ATTR_ENTITY_ID: entity_id,
-                    ATTR_MEDIA_VOLUME_LEVEL: quiet_volume,
-                },
-                blocking=True,
-            )
-            _LOGGER.info("Set quiet volume %s for %s", quiet_volume, entity_id)
-
-    async def async_handle_disable(call: ServiceCall) -> None:
-        """Handle the disable service call."""
-        entity_ids = call.data[ATTR_ENTITY_ID]
-
-        _LOGGER.debug("Disabling quiet mode for %s", entity_ids)
-
-        for entity_id in entity_ids:
-            # Retrieve stored volume
-            previous_volume = hass.data[DOMAIN][DATA_PREVIOUS_VOLUMES].get(entity_id)
-
-            if previous_volume is None:
-                _LOGGER.warning(
-                    "No previous volume stored for %s, skipping restore", entity_id
+            # Set the new volume
+            try:
+                await hass.services.async_call(
+                    MEDIA_PLAYER_DOMAIN,
+                    SERVICE_VOLUME_SET,
+                    {ATTR_ENTITY_ID: entity_id, ATTR_MEDIA_VOLUME_LEVEL: target_volume},
+                    blocking=True,
                 )
-                continue
+            except HomeAssistantError as e:
+                _LOGGER.error("Failed to set volume for %s: %s", entity_id, e)
 
-            # Restore the previous volume
-            await hass.services.async_call(
-                MEDIA_PLAYER_DOMAIN,
-                SERVICE_VOLUME_SET,
-                {
-                    ATTR_ENTITY_ID: entity_id,
-                    ATTR_MEDIA_VOLUME_LEVEL: previous_volume,
-                },
-                blocking=True,
-            )
-            _LOGGER.info("Restored volume %s for %s", previous_volume, entity_id)
+    async def async_disable_quiet_mode(call: ServiceCall) -> None:
+        """Disable quiet mode and restore volume."""
+        stored_entities = list(hass.data[DOMAIN].keys())
 
-            # Clean up stored volume
-            del hass.data[DOMAIN][DATA_PREVIOUS_VOLUMES][entity_id]
+        if not stored_entities:
+            _LOGGER.debug("No active Quiet Mode sessions to restore")
+            return
 
-    # Register services
+        for entity_id in stored_entities:
+            original_volume = hass.data[DOMAIN].pop(entity_id)
+            _LOGGER.debug("Restoring volume %s for %s", original_volume, entity_id)
+
+            try:
+                await hass.services.async_call(
+                    MEDIA_PLAYER_DOMAIN,
+                    SERVICE_VOLUME_SET,
+                    {
+                        ATTR_ENTITY_ID: entity_id,
+                        ATTR_MEDIA_VOLUME_LEVEL: original_volume,
+                    },
+                    blocking=True,
+                )
+            except HomeAssistantError as e:
+                _LOGGER.error("Failed to restore volume for %s: %s", entity_id, e)
+
     hass.services.async_register(
-        DOMAIN,
-        SERVICE_ENABLE,
-        async_handle_enable,
-        schema=SERVICE_ENABLE_SCHEMA,
+        DOMAIN, SERVICE_ENABLE, async_enable_quiet_mode, schema=ENABLE_SCHEMA
+    )
+    hass.services.async_register(
+        DOMAIN, SERVICE_DISABLE, async_disable_quiet_mode, schema=DISABLE_SCHEMA
     )
 
-    hass.services.async_register(
-        DOMAIN,
-        SERVICE_DISABLE,
-        async_handle_disable,
-        schema=SERVICE_DISABLE_SCHEMA,
-    )
-
-    _LOGGER.info("Quiet Mode integration setup complete")
     return True
